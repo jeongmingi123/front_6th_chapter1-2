@@ -13,7 +13,17 @@ function updateAttributes(target, originNewProps, originOldProps) {
       if (key.startsWith("on") && typeof value === "function") {
         // 이벤트 리스너 처리
         const eventName = key.toLowerCase().substring(2);
-        addEvent(target, eventName, value);
+        const oldValue = originOldProps && originOldProps[key];
+
+        // 이벤트 핸들러가 변경되었을 때만 처리
+        if (oldValue !== value) {
+          // 이전 핸들러 제거
+          if (oldValue && typeof oldValue === "function") {
+            removeEvent(target, eventName, oldValue);
+          }
+          // 새 핸들러 추가
+          addEvent(target, eventName, value);
+        }
       } else if (key === "className") {
         target.className = value;
       } else if (key === "style" && typeof value === "object") {
@@ -105,6 +115,40 @@ export function updateElement(parentElement, newNode, oldNode, index = 0) {
     return;
   }
 
+  // 텍스트 노드에서 요소 노드로 변경
+  if (typeof newNode === "object" && typeof oldNode === "string") {
+    const newElement = createElement(newNode);
+    const oldChild = parentElement.childNodes[index];
+    if (oldChild) {
+      parentElement.replaceChild(newElement, oldChild);
+    } else {
+      parentElement.appendChild(newElement);
+    }
+    return;
+  }
+
+  // 요소 노드에서 텍스트 노드로 변경
+  if (typeof newNode === "string" && typeof oldNode === "object") {
+    // 기존 요소의 이벤트 핸들러 정리
+    const oldElement = parentElement.childNodes[index];
+    if (oldElement && oldNode.props) {
+      Object.entries(oldNode.props).forEach(([key, value]) => {
+        if (key.startsWith("on") && typeof value === "function") {
+          const eventName = key.toLowerCase().substring(2);
+          removeEvent(oldElement, eventName, value);
+        }
+      });
+    }
+
+    const newTextNode = document.createTextNode(newNode);
+    if (oldElement) {
+      parentElement.replaceChild(newTextNode, oldElement);
+    } else {
+      parentElement.appendChild(newTextNode);
+    }
+    return;
+  }
+
   // 둘 다 요소 노드인 경우
   if (newNode && oldNode && typeof newNode === "object" && typeof oldNode === "object") {
     // 타입이 다르면 교체
@@ -137,17 +181,26 @@ export function updateElement(parentElement, newNode, oldNode, index = 0) {
       // 자식 노드들 재귀적으로 업데이트
       const newChildren = newNode.children || [];
       const oldChildren = oldNode.children || [];
+      const minLength = Math.min(oldChildren.length, newChildren.length);
 
-      // 기존 자식 노드들을 제거 (역순으로 제거)
-      for (let i = oldChildren.length - 1; i >= newChildren.length; i--) {
-        if (element.childNodes[i]) {
-          element.removeChild(element.childNodes[i]);
-        }
+      // 1. 겹치는 부분 먼저 업데이트
+      for (let i = 0; i < minLength; i++) {
+        updateElement(element, newChildren[i], oldChildren[i], i);
       }
 
-      // 새로운 자식 노드들을 추가하거나 업데이트
-      for (let i = 0; i < newChildren.length; i++) {
-        updateElement(element, newChildren[i], oldChildren[i], i);
+      // 2. oldChildren이 더 많으면 초과 부분 역순으로 제거
+      if (oldChildren.length > newChildren.length) {
+        for (let i = oldChildren.length - 1; i >= newChildren.length; i--) {
+          if (element.childNodes[i]) {
+            element.removeChild(element.childNodes[i]);
+          }
+        }
+      }
+      // 3. newChildren이 더 많으면 초과 부분 정방향으로 추가
+      else if (newChildren.length > oldChildren.length) {
+        for (let i = oldChildren.length; i < newChildren.length; i++) {
+          updateElement(element, newChildren[i], null, i);
+        }
       }
     }
   }
