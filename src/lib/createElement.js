@@ -1,106 +1,209 @@
 import { addEvent } from "./eventManager";
 
+// 상수 정의
+const BOOLEAN_PROPS = ["checked", "disabled", "selected", "readOnly"];
+const DOM_ATTRIBUTE_PROPS = ["disabled", "readOnly"];
+const REMOVE_ATTRIBUTE_PROPS = ["checked", "selected"];
+
+/**
+ * 가상 노드를 실제 DOM 요소로 변환
+ * @param {any} vNode - 변환할 가상 노드
+ * @returns {Node} - 생성된 DOM 노드
+ */
 export function createElement(vNode) {
-  // 1. null, undefined, boolean 처리
-  if (vNode == null || typeof vNode === "boolean") {
-    return document.createTextNode("");
+  // null, undefined, boolean 처리
+  if (isNullOrBoolean(vNode)) {
+    return createEmptyTextNode();
   }
 
-  // 2. 문자열이나 숫자 처리
-  if (typeof vNode === "string" || typeof vNode === "number") {
-    return document.createTextNode(String(vNode));
+  // 문자열이나 숫자 처리
+  if (isPrimitive(vNode)) {
+    return createTextNode(vNode);
   }
 
-  // 3. 배열 처리
+  // 배열 처리
   if (Array.isArray(vNode)) {
-    const fragment = document.createDocumentFragment();
-    vNode.forEach((child) => {
-      const childElement = createElement(child);
-      fragment.appendChild(childElement);
-    });
-    return fragment;
+    return createFragmentFromArray(vNode);
   }
 
-  // 4. DOM 요소 생성
+  // 객체 형태의 가상 노드 처리
+  return createElementFromVNode(vNode);
+}
+
+/**
+ * null, undefined, boolean 값인지 확인
+ */
+function isNullOrBoolean(value) {
+  return value == null || typeof value === "boolean";
+}
+
+/**
+ * 원시 타입(문자열, 숫자)인지 확인
+ */
+function isPrimitive(value) {
+  return typeof value === "string" || typeof value === "number";
+}
+
+/**
+ * 빈 텍스트 노드 생성
+ */
+function createEmptyTextNode() {
+  return document.createTextNode("");
+}
+
+/**
+ * 텍스트 노드 생성
+ */
+function createTextNode(value) {
+  return document.createTextNode(String(value));
+}
+
+/**
+ * 배열로부터 DocumentFragment 생성
+ */
+function createFragmentFromArray(vNodeArray) {
+  const fragment = document.createDocumentFragment();
+  vNodeArray.forEach((child) => {
+    const childElement = createElement(child);
+    fragment.appendChild(childElement);
+  });
+  return fragment;
+}
+
+/**
+ * 가상 노드로부터 DOM 요소 생성
+ */
+function createElementFromVNode(vNode) {
   const { type, props = {}, children = [] } = vNode;
 
-  // type이 문자열이면 HTML 요소, 함수면 컴포넌트
   if (typeof type === "string") {
-    const element = document.createElement(type);
-
-    // 속성 적용
-    updateAttributes(element, props);
-
-    // 자식 요소들 처리
-    children.forEach((child) => {
-      const childElement = createElement(child);
-      element.appendChild(childElement);
-    });
-
-    return element;
+    return createHTMLElement(type, props, children);
   }
 
-  // 함수형 컴포넌트는 바로 처리하지 않고 에러를 던짐
   if (typeof type === "function") {
     throw new Error("함수형 컴포넌트는 createElement로 직접 처리할 수 없습니다. 먼저 normalizeVNode로 정규화하세요.");
   }
 
-  // 예상치 못한 타입의 경우 빈 텍스트 노드 반환
-  return document.createTextNode("");
+  return createEmptyTextNode();
 }
 
-function updateAttributes($el, props) {
-  // boolean 속성 목록
-  const booleanProps = ["checked", "disabled", "selected", "readOnly"];
-  // props가 없거나 빈 객체인 경우 처리하지 않음
+/**
+ * HTML 요소 생성
+ */
+function createHTMLElement(type, props, children) {
+  const element = document.createElement(type);
+
+  applyAttributes(element, props);
+  appendChildren(element, children);
+
+  return element;
+}
+
+/**
+ * 자식 요소들을 부모 요소에 추가
+ */
+function appendChildren(parent, children) {
+  children.forEach((child) => {
+    const childElement = createElement(child);
+    parent.appendChild(childElement);
+  });
+}
+
+/**
+ * 요소에 속성들을 적용
+ */
+function applyAttributes(element, props) {
   if (!props || Object.keys(props).length === 0) {
     return;
   }
 
   Object.entries(props).forEach(([key, value]) => {
-    // children은 DOM 속성이 아니므로 건너뛰기
     if (key === "children") {
       return;
     }
 
-    // 이벤트 리스너 처리 (on으로 시작하는 속성)
-    if (key.startsWith("on") && typeof value === "function") {
-      const eventName = key.toLowerCase().substring(2);
-      addEvent($el, eventName, value);
+    if (isEventHandler(key, value)) {
+      addEventHandler(element, key, value);
       return;
     }
 
-    // className 처리
     if (key === "className") {
-      $el.className = value;
+      element.className = value;
       return;
     }
 
-    // style 처리 (객체인 경우)
-    if (key === "style" && typeof value === "object") {
-      Object.assign($el.style, value);
+    if (isStyleObject(key, value)) {
+      applyStyleObject(element, value);
       return;
     }
 
-    // boolean 속성 처리
-    if (booleanProps.includes(key)) {
-      $el[key] = !!value;
-      if (key === "disabled" || key === "readOnly") {
-        if (value) {
-          $el.setAttribute(key, "");
-        } else {
-          $el.removeAttribute(key);
-        }
-      } else {
-        // checked, selected는 attribute를 항상 제거 (테스트 요구)
-        $el.removeAttribute(key);
-      }
+    if (isBooleanProp(key)) {
+      applyBooleanAttribute(element, key, value);
       return;
     }
 
-    // 일반 속성 처리
-    if (value != null) {
-      $el.setAttribute(key, value);
-    }
+    applyRegularAttribute(element, key, value);
   });
+}
+
+/**
+ * 이벤트 핸들러인지 확인
+ */
+function isEventHandler(key, value) {
+  return key.startsWith("on") && typeof value === "function";
+}
+
+/**
+ * 이벤트 핸들러 추가
+ */
+function addEventHandler(element, key, value) {
+  const eventName = key.toLowerCase().substring(2);
+  addEvent(element, eventName, value);
+}
+
+/**
+ * style 객체인지 확인
+ */
+function isStyleObject(key, value) {
+  return key === "style" && typeof value === "object";
+}
+
+/**
+ * style 객체 적용
+ */
+function applyStyleObject(element, styleObject) {
+  Object.assign(element.style, styleObject);
+}
+
+/**
+ * boolean 속성인지 확인
+ */
+function isBooleanProp(key) {
+  return BOOLEAN_PROPS.includes(key);
+}
+
+/**
+ * boolean 속성 적용
+ */
+function applyBooleanAttribute(element, key, value) {
+  element[key] = !!value;
+
+  if (DOM_ATTRIBUTE_PROPS.includes(key)) {
+    if (value) {
+      element.setAttribute(key, "");
+    } else {
+      element.removeAttribute(key);
+    }
+  } else if (REMOVE_ATTRIBUTE_PROPS.includes(key)) {
+    element.removeAttribute(key);
+  }
+}
+
+/**
+ * 일반 속성 적용
+ */
+function applyRegularAttribute(element, key, value) {
+  if (value != null) {
+    element.setAttribute(key, value);
+  }
 }
