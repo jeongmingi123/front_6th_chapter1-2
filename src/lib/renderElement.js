@@ -7,17 +7,23 @@ export function renderElement(vNode, container) {
   // vNode를 표준화
   const normalizedVNode = normalizeVNode(vNode);
 
-  // container가 비어있는지 확인하여 최초 렌더링인지 판단
-  const isInitialRender = container.children.length === 0;
+  // 이전 vNode 가져오기
+  const oldNode = container._vNode;
 
-  if (isInitialRender) {
+  if (!oldNode) {
     // 최초 렌더링: createElement로 DOM을 생성하고 container에 추가
+    container.innerHTML = ""; // 기존 내용 제거
     const element = createElement(normalizedVNode);
     container.appendChild(element);
   } else {
-    // 이후 렌더링: updateElement로 기존 DOM을 업데이트
-    const oldNode = container._vNode || null; // 이전 vNode 저장
-    updateElement(container, normalizedVNode, oldNode);
+    // 이후 렌더링: container의 첫 번째 자식을 업데이트
+    if (container.firstChild) {
+      updateElement(container, normalizedVNode, oldNode, 0);
+    } else {
+      // 예외적으로 첫 번째 자식이 없는 경우 새로 생성
+      const element = createElement(normalizedVNode);
+      container.appendChild(element);
+    }
   }
 
   // 현재 vNode를 container에 저장 (다음 렌더링을 위해)
